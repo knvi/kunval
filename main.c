@@ -2,158 +2,175 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef int KeyType;
-typedef char *ValueType;
+#define MAX_KEY_SIZE 256   // in chars
+#define MAX_VALUE_SIZE 256 // in chars
+#define LAYOUT "%s %s\n"
 
-// Create a struct to represent a single key-value pair
-typedef struct KeyValuePair
-{
-    KeyType key;
-    ValueType value;
-    struct KeyValuePair *next;
-} KeyValuePair;
+typedef char *KeyType;
+typedef char *ValueType;
 
 // Create a struct to represent the entire database
 typedef struct KeyValueDb
 {
-    KeyValuePair *first;
-    KeyValuePair *last;
-    int size;
+    FILE *fp;
 } KeyValueDb;
+
+// Open the database file for reading and writing
+KeyValueDb *open_db(const char *filename)
+{
+    KeyValueDb *db = (KeyValueDb *)malloc(sizeof(KeyValueDb));
+    db->fp = fopen(filename, "r+");
+    if (db->fp == NULL)
+    {
+        db->fp = fopen(filename, "w+");
+    }
+    return db;
+}
 
 // Create a new key-value pair and add it to the database
 void add(KeyValueDb *db, KeyType key, ValueType value)
 {
-    KeyValuePair *pair = (KeyValuePair *)malloc(sizeof(KeyValuePair));
-    pair->key = key;
-    pair->value = strdup(value); // Make a copy of the value string
-    pair->next = NULL;
-    if (db->last == NULL)
-    {
-        db->first = pair;
-        db->last = pair;
-    }
-    else
-    {
-        db->last->next = pair;
-        db->last = pair;
-    }
-    db->size++;
+    // note: lmao
+    fprintf(db->fp, "%s %s\n", key, value);
 }
 
 // Search the database for a specific key and return the corresponding value
 ValueType get(KeyValueDb *db, KeyType key)
 {
-    KeyValuePair *pair = db->first;
-    while (pair != NULL)
+    rewind(db->fp); // go back to the start of the file
+    KeyType readKey = (ValueType)malloc(sizeof(char) * MAX_KEY_SIZE);
+    ValueType value = (ValueType)malloc(sizeof(char) * MAX_VALUE_SIZE);
+    while (fscanf(db->fp, "%s %s\n", readKey, value) == 2)
     {
-        if (pair->key == key)
+        if (strcmp(readKey, key) == 0)
         {
-            return pair->value;
+            return value;
         }
-        pair = pair->next;
     }
 
+    free(readKey);
+    free(value);
     return NULL;
 }
 
 // Update the value for a specific key in the database
 void update(KeyValueDb *db, KeyType key, ValueType value)
 {
-    KeyValuePair *pair = db->first;
-    while (pair != NULL)
+    char tempFilename[256];
+    sprintf(tempFilename, "%s.tmp", "database.txt");
+
+    FILE *tempfp = fopen(tempFilename, "w");
+    if (tempfp == NULL)
     {
-        if (pair->key == key)
-        {
-            free(pair->value);           // Free the old value string
-            pair->value = strdup(value); // Make a copy of the new value string
-            return;
-        }
-        pair = pair->next;
+        // Error creating temporary file
+        return;
     }
-    // Key not found, do nothing
+
+    rewind(db->fp);
+    KeyType readKey = (ValueType)malloc(sizeof(char) * MAX_KEY_SIZE);
+    ValueType readValue = (ValueType)malloc(sizeof(char) * MAX_VALUE_SIZE);
+    int keyFound = 0;
+    while (fscanf(db->fp, "%s %s\n", readKey, readValue) == 2)
+    { // Read key-value pair from the original file
+        if (strcmp(readKey, key) == 0)
+        {                                               // Check if the key matches the target key
+            fprintf(tempfp, "%s %s\n", readKey, value); // Write the updated key-value pair to the temporary file
+            keyFound = 1;
+        }
+        else
+        {
+            fprintf(tempfp, "%s %s\n", readKey, readValue); // Write the original key-value pair to the temporary file
+        }
+    }
+    free(readKey);
+    free(readValue);
+
+    if (!keyFound)
+    {
+        fprintf(tempfp, "%s %s\n", key, value);
+    }
+
+    fclose(tempfp);
+    fclose(db->fp);
+
+    rename(tempFilename, "database.txt");
+
+    // Open the file again for reading and writing
+    db->fp = fopen("database.txt", "r+");
 }
 
 // Delete a key-value pair from the database
 void delete(KeyValueDb *db, KeyType key)
 {
-    KeyValuePair *pair = db->first;
-    KeyValuePair *prev = NULL;
-    while (pair != NULL)
+    FILE *tempfp = tmpfile();
+    if (tempfp == NULL)
     {
-        if (pair->key == key)
-        {
-            if (prev == NULL)
-            {
-                // Special case for deleting the first element
-                db->first = pair->next;
-            }
-            else
-            {
-                prev->next = pair->next;
-            }
-            if (pair->next == NULL)
-            {
-                // Special case for deleting the last element
-                db->last = prev;
-            }
-            free(pair->value); // Free the value string
-            free(pair);        // Free the key-value pair struct
-            db->size--;
-            return;
-        }
-        prev = pair;
-        pair = pair->next;
+        return;
     }
-    // Key not found, do nothing
+
+    rewind(db->fp);
+    KeyType readKey = (ValueType)malloc(sizeof(char) * MAX_KEY_SIZE);
+    ValueType readValue = (ValueType)malloc(sizeof(char) * MAX_VALUE_SIZE);
+    while (fscanf(db->fp, "%s %s\n", readKey, readValue) == 2)
+    { // Read key-value pair from the original file
+        if (strcmp(readKey, key) == 0)
+        {
+            fprintf(tempfp, "%s %s\n", readKey, readValue); // Write the key-value pair to the temporary file
+        }
+    }
+    free(readKey);
+    free(readValue);
+
+    fclose(tempfp);
+    fclose(db->fp);
+
+    rename("tmpfileXXXXXX", "database.txt");
+
+    // Open the file again for reading and writing
+    db->fp = fopen("database.txt", "r+");
 }
 
 // Iterate through all key-value pairs in the database and print them
 void printAll(KeyValueDb *db)
 {
-    KeyValuePair *pair = db->first;
-    while (pair != NULL)
-    {
-        printf("Key: %d, Value: %s\n", pair->key, pair->value);
-        pair = pair->next;
+    rewind(db->fp);
+    KeyType readKey = (ValueType)malloc(sizeof(char) * MAX_KEY_SIZE);
+    ValueType readValue = (ValueType)malloc(sizeof(char) * MAX_VALUE_SIZE);
+    while (fscanf(db->fp, "%s %s\n", readKey, readValue) == 2)
+    { // Read key-value pair from the original file
+        printf("Key: %s, value: %s\n", readKey, readValue);
     }
+
+    free(readKey);
+    free(readValue);
 }
 
-void free_db(KeyValueDb *db) {
-  KeyValuePair *pair = db->first;
-  KeyValuePair *next;
-  while (pair != NULL) {
-    next = pair->next;
-    free(pair->value);  // Free the value string
-    free(pair);  // Free the key-value pair struct
-    pair = next;
-  }
-  db->first = NULL;
-  db->last = NULL;
-  db->size = 0;
+void free_db(KeyValueDb *db)
+{
+    // db is only one file
+    free(db);
 }
 
 int main(void)
 {
-    KeyValueDb db;
-    db.first = NULL;
-    db.last = NULL;
-    db.size = 0;
+    KeyValueDb *db = open_db("database.txt");
 
-    add(&db, 1, "apple");
-    add(&db, 2, "banana");
-    add(&db, 3, "cherry");
+    add(db, "1", "fruit");
+    add(db, "banana", "fruit");
+    add(db, "cherry", "fruit");
 
-    printf("Value for key 2: %s\n", get(&db, 2)); // prints "banana"
+    printf("Value for key 'banana': %s\n", get(db, "1")); // prints "fruit"
 
-    update(&db, 2, "orange");
-    printf("Value for key 2: %s\n", get(&db, 2)); // prints "orange"
+    update(db, "banana", "vegetable");
+    printf("Value for key 'banana': %s\n", get(db, "banana")); // prints "vegetable"
 
-    delete (&db, 1);
-    printf("Value for key 1: %s\n", get(&db, 1)); // prints NULL
+    delete (db, "apple");
+    printf("Value for key 'apple': %s\n", get(db, "apple")); // prints NULL
 
-    printAll(&db); // prints key-value pairs for keys 2 and 3
+    printAll(db); // prints key-value pairs for keys "banana" and "cherry"
 
-    free_db(&db);
+    fclose(db->fp);
+    free_db(db);
+
     return 0;
 }
