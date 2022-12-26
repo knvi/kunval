@@ -4,7 +4,6 @@
 
 #define MAX_KEY_SIZE 256   // in chars
 #define MAX_VALUE_SIZE 256 // in chars
-#define LAYOUT "%s %s\n"
 
 typedef char *KeyType;
 typedef char *ValueType;
